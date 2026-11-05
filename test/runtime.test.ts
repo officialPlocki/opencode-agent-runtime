@@ -5,6 +5,7 @@ import {
   createProjectState,
   endExecution,
   formatDuration,
+  formatTimer,
   liveStats,
   normalizeState,
   reconcileRunning,
@@ -51,16 +52,72 @@ test("ending without a start is ignored", () => {
 test("live stats include currently running executions", () => {
   const state = createProjectState("proj", "/work/proj", T0);
   beginExecution(state, "ses_a", T0);
-  beginExecution(state, "ses_b", T0 + 5_000);
+  beginExecution(state, "ses_b", T0 + 5_000, { parentID: "ses_a" });
 
   const stats = liveStats(state, "ses_a", T0 + 20_000);
 
   assert.equal(stats.session.totalMs, 0);
-  assert.equal(stats.session.runningSince, T0);
-  assert.equal(stats.session.runningMs, 20_000);
+  assert.equal(stats.session.ownRunningSince, T0);
+  assert.equal(stats.session.ownRunningMs, 20_000);
+  assert.equal(stats.session.activeSince, T0);
+  assert.equal(stats.session.runningSessions, 2);
+  assert.equal(stats.session.runningMs, 20_000 + 15_000);
+  assert.equal(stats.session.subagents, 1);
   assert.equal(stats.project.runningSessions, 2);
   assert.equal(stats.project.runningMs, 20_000 + 15_000);
   assert.equal(stats.project.executions, 0);
+});
+
+test("subagent time is added to the parent session total", () => {
+  const state = createProjectState("proj", "/work/proj", T0);
+
+  beginExecution(state, "ses_parent", T0);
+  endExecution(state, "ses_parent", T0 + 90_000, "succeeded");
+
+  beginExecution(state, "ses_child", T0 + 100_000, { parentID: "ses_parent" });
+  endExecution(state, "ses_child", T0 + 130_000, "succeeded");
+
+  beginExecution(state, "ses_grandchild", T0 + 140_000, { parentID: "ses_child" });
+  endExecution(state, "ses_grandchild", T0 + 150_000, "succeeded");
+
+  const parent = liveStats(state, "ses_parent", T0 + 200_000);
+  assert.equal(parent.session.ownTotalMs, 90_000);
+  assert.equal(parent.session.ownExecutions, 1);
+  assert.equal(parent.session.subagentTotalMs, 40_000);
+  assert.equal(parent.session.subagentExecutions, 2);
+  assert.equal(parent.session.subagents, 2);
+  assert.equal(parent.session.totalMs, 130_000);
+  assert.equal(parent.session.executions, 3);
+  assert.equal(parent.project.totalMs, 130_000);
+  assert.equal(parent.project.executions, 3);
+
+  const child = liveStats(state, "ses_child", T0 + 200_000);
+  assert.equal(child.session.ownTotalMs, 30_000);
+  assert.equal(child.session.totalMs, 40_000);
+  assert.equal(child.session.executions, 2);
+  assert.equal(child.session.subagents, 1);
+});
+
+test("the running timer survives a state serialization roundtrip", () => {
+  const state = createProjectState("proj", "/work/proj", T0);
+  beginExecution(state, "ses_parent", T0, { title: "Parent" });
+  beginExecution(state, "ses_child", T0 + 5_000, { parentID: "ses_parent" });
+
+  const restored = normalizeState(
+    JSON.parse(JSON.stringify(state)),
+    "proj",
+    "/work/proj",
+    T0 + 20_000,
+  );
+
+  assert.equal(restored.running.ses_parent?.startedAt, T0);
+  assert.equal(restored.running.ses_child?.startedAt, T0 + 5_000);
+  assert.equal(restored.sessions.ses_child?.parentID, "ses_parent");
+
+  const stats = liveStats(restored, "ses_parent", T0 + 20_000);
+  assert.equal(stats.session.activeSince, T0);
+  assert.equal(stats.session.runningSessions, 2);
+  assert.equal(stats.session.runningMs, 35_000);
 });
 
 test("reconcile closes runs that ended while the plugin was offline", () => {
@@ -155,4 +212,11 @@ test("formatDuration uses compact human units", () => {
   assert.equal(formatDuration(65_000), "1m 05s");
   assert.equal(formatDuration(3_600_000), "1h 00m");
   assert.equal(formatDuration(90_000_000), "1d 1h");
+});
+
+test("formatTimer keeps a stable timer shape", () => {
+  assert.equal(formatTimer(0), "0:00");
+  assert.equal(formatTimer(9_000), "0:09");
+  assert.equal(formatTimer(65_000), "1:05");
+  assert.equal(formatTimer(3_665_000), "1:01:05");
 });

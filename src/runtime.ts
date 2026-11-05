@@ -49,9 +49,29 @@ export type ActiveSession = {
 
 export type SessionStats = {
   sessionID: string;
+  /** Completed execution time for this session and all of its subagent descendants. */
   totalMs: number;
+  /** Completed executions for this session and all of its subagent descendants. */
   executions: number;
-  runningSince: number | null;
+  /** Completed execution time of this session only. */
+  ownTotalMs: number;
+  /** Completed executions of this session only. */
+  ownExecutions: number;
+  /** Number of descendant subagent sessions. */
+  subagents: number;
+  /** Completed execution time of all descendant subagent sessions. */
+  subagentTotalMs: number;
+  /** Completed executions of all descendant subagent sessions. */
+  subagentExecutions: number;
+  /** Start of this session's own running execution, if any. */
+  ownRunningSince: number | null;
+  /** Elapsed time of this session's own running execution. */
+  ownRunningMs: number;
+  /** Earliest start among running executions in this session's family. */
+  activeSince: number | null;
+  /** Number of running executions in this session's family. */
+  runningSessions: number;
+  /** Sum of all running execution durations in this session's family. */
   runningMs: number;
 };
 
@@ -216,6 +236,7 @@ export function beginExecution(
   record.lastStartedAt = running.startedAt;
   record.updatedAt = startedAt;
   state.updatedAt = Math.max(state.updatedAt, startedAt);
+  state.heartbeatAt = Math.max(state.heartbeatAt, startedAt);
   return running;
 }
 
@@ -306,27 +327,88 @@ function isRunning(info: ActiveSession): boolean {
   return info.busy !== undefined && (info.idle === undefined || info.busy > info.idle);
 }
 
+function sessionFamily(state: ProjectState, rootID: string): SessionRecord[] {
+  const children = new Map<string, SessionRecord[]>();
+  for (const record of Object.values(state.sessions)) {
+    if (!record.parentID) continue;
+    const list = children.get(record.parentID);
+    if (list) list.push(record);
+    else children.set(record.parentID, [record]);
+  }
+
+  const family: SessionRecord[] = [];
+  const seen = new Set<string>();
+  const queue = [rootID];
+  while (queue.length > 0) {
+    const id = queue.shift() as string;
+    if (seen.has(id)) continue;
+    seen.add(id);
+
+    const record = state.sessions[id];
+    if (record) family.push(record);
+    for (const child of children.get(id) ?? []) queue.push(child.id);
+  }
+  return family;
+}
+
 export function liveStats(state: ProjectState, sessionID: string, now = Date.now()): RuntimeStats {
-  const record = state.sessions[sessionID];
-  const running = state.running[sessionID];
+  const family = sessionFamily(state, sessionID);
+  const ownRunning = state.running[sessionID];
   const starts = Object.values(state.running);
-  const runningMs = starts.reduce((sum, entry) => sum + Math.max(0, now - entry.startedAt), 0);
+  const projectRunningMs = starts.reduce((sum, entry) => sum + Math.max(0, now - entry.startedAt), 0);
+
+  let totalMs = 0;
+  let executions = 0;
+  let subagents = 0;
+  let subagentTotalMs = 0;
+  let subagentExecutions = 0;
+  let activeSince: number | null = null;
+  let runningSessions = 0;
+  let runningMs = 0;
+
+  for (const record of family) {
+    totalMs += record.totalMs;
+    executions += record.executions;
+
+    const running = state.running[record.id];
+    if (record.id !== sessionID) {
+      if (record.executions > 0 || running) subagents += 1;
+      subagentTotalMs += record.totalMs;
+      subagentExecutions += record.executions;
+    }
+
+    if (running) {
+      runningSessions += 1;
+      runningMs += Math.max(0, now - running.startedAt);
+      activeSince = activeSince === null ? running.startedAt : Math.min(activeSince, running.startedAt);
+    }
+  }
 
   return {
     generatedAt: now,
     session: {
       sessionID,
-      totalMs: record?.totalMs ?? 0,
-      executions: record?.executions ?? 0,
-      runningSince: running?.startedAt ?? null,
-      runningMs: running ? Math.max(0, now - running.startedAt) : 0,
+      totalMs,
+      executions,
+      ownTotalMs: state.sessions[sessionID]?.totalMs ?? 0,
+      ownExecutions: state.sessions[sessionID]?.executions ?? 0,
+      subagents,
+      subagentTotalMs,
+      subagentExecutions,
+      ownRunningSince: ownRunning?.startedAt ?? null,
+      ownRunningMs: ownRunning ? Math.max(0, now - ownRunning.startedAt) : 0,
+      activeSince,
+      runningSessions,
+      runningMs,
     },
     project: {
       totalMs: state.totalMs,
       executions: state.executions,
-      sessions: Object.values(state.sessions).filter((entry) => entry.executions > 0).length,
+      sessions: Object.values(state.sessions).filter(
+        (entry) => entry.executions > 0 || state.running[entry.id] !== undefined,
+      ).length,
       runningSessions: starts.length,
-      runningMs,
+      runningMs: projectRunningMs,
     },
   };
 }
@@ -362,24 +444,46 @@ export function formatDuration(ms: number): string {
   return `${seconds}s`;
 }
 
+export function formatTimer(ms: number): string {
+  const safe = Number.isFinite(ms) ? Math.max(0, ms) : 0;
+  const totalSeconds = Math.floor(safe / 1_000);
+  const seconds = totalSeconds % 60;
+  const minutes = Math.floor(totalSeconds / 60) % 60;
+  const hours = Math.floor(totalSeconds / 3_600);
+
+  if (hours > 0) {
+    return `${hours}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+  }
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
 export function formatReport(stats: RuntimeStats, projectLabel?: string): string {
   const { session, project } = stats;
   const sessionTotal = session.totalMs + session.runningMs;
   const projectTotal = project.totalMs + project.runningMs;
-  const sessionRuns = session.executions + (session.runningSince !== null ? 1 : 0);
+  const sessionRuns = session.executions + session.runningSessions;
+  const activeMs = session.activeSince !== null ? Math.max(0, stats.generatedAt - session.activeSince) : 0;
 
   const lines = [
     "# Agent runtime",
     "",
     `- Session: ${formatDuration(sessionTotal)} · ${sessionRuns} run${sessionRuns === 1 ? "" : "s"}${
-      session.runningSince !== null ? ` · running for ${formatDuration(session.runningMs)}` : ""
-    }`,
+      session.subagents > 0 ? ` · ${session.subagents} subagent${session.subagents === 1 ? "" : "s"}` : ""
+    }${session.activeSince !== null ? ` · active for ${formatDuration(activeMs)}` : ""}`,
     `- Project${projectLabel ? ` (${projectLabel})` : ""}: ${formatDuration(projectTotal)} · ${
       project.executions
     } runs · ${project.sessions} session${project.sessions === 1 ? "" : "s"}${
       project.runningSessions > 0 ? ` · ${project.runningSessions} running` : ""
     }`,
   ];
+
+  if (session.subagents > 0) {
+    lines.push(
+      `- Subagents: ${formatDuration(session.subagentTotalMs)} · ${session.subagentExecutions} run${
+        session.subagentExecutions === 1 ? "" : "s"
+      }`,
+    );
+  }
 
   return lines.join("\n");
 }

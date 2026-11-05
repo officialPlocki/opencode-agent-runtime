@@ -72,6 +72,7 @@ export default Plugin.define({
         for (const info of result.data) {
           projectBySession.set(info.id, info.projectID);
           if (info.location?.directory) knownDirectories.add(info.location.directory);
+          ensureSession(state, info.id, Date.now(), { title: info.title, parentID: info.parentID });
           active.set(info.id, {
             busy: info.time.busy,
             idle: info.time.idle,
@@ -90,7 +91,10 @@ export default Plugin.define({
 
     try {
       const active = await hydrate();
-      if (reconcileRunning(state, active)) await save();
+      reconcileRunning(state, active);
+      // Persist the reconciled running timers and any parent/title metadata so
+      // the live timer survives plugin reloads and server restarts.
+      await save();
     } catch (cause) {
       log(`could not read active sessions: ${cause instanceof Error ? cause.message : String(cause)}`);
     }

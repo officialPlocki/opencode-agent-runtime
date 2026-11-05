@@ -1,6 +1,6 @@
 {
   "name": "opencode-agent-runtime",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "OpenCode V2 plugin: track total agent running time per session and per project.",
   "type": "module",
   "license": "MIT",

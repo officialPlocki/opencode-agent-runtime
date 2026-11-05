@@ -2,7 +2,7 @@
 
 <p align="center">
   Track total agent running time per session and per project in OpenCode V2.<br/>
-  A small standalone plugin: server-side tracking + TUI sidebar + RPC + <code>agent_runtime</code> tool.
+  Live current-run timer + persisted session/project totals, including subagents.
 </p>
 
 <p align="center">
@@ -16,10 +16,10 @@
 
 | Scope | Meaning |
 | --- | --- |
-| **Session** | Total completed plus currently running agent execution time in the selected session. |
-| **Project** | Total across every session in the project, including subagent sessions. |
-| **Live** | If an execution is running, the sidebar keeps counting in real time. |
-| **Persistent** | Values live in OpenCode's plugin storage and survive restarts. |
+| **Session** | Completed plus currently running agent execution time for the selected session **and all of its subagent descendants**. |
+| **Project** | Total across every session in the project, including subagents. |
+| **Current timer** | Live clock for the active execution in the selected session family. |
+| **Persistent** | Completed totals and the running-timer start are stored in OpenCode's plugin storage and survive reloads/restarts. |
 
 Time is measured as wall-clock time between `session.execution.started` and
 `session.execution.succeeded` / `failed` / `interrupted`. This includes waiting
@@ -67,7 +67,7 @@ Point the plugin entry at the printed directory.
 {
   "plugins": [
     {
-      "package": "/home/you/.local/share/opencode-agent-runtime/0.1.1",
+      "package": "/home/you/.local/share/opencode-agent-runtime/0.2.0",
       "options": {
         "hideWhenIdle": false
       }
@@ -86,12 +86,18 @@ Point the plugin entry at the printed directory.
 
 ```text
 AGENT RUNTIME
+now      2:11
 session  1h 23m
-4 runs · running 2m 10s
+4 runs · 2 subagents
 project  12h 45m
 38 runs · 7 sessions
 2 running
 ```
+
+`now` is the live timer for the active execution in the current session family.
+It keeps ticking while the selected session or one of its subagents is running.
+`session` includes completed time plus the live portion of every running
+execution in that family.
 
 ### Slash command
 
@@ -110,18 +116,31 @@ directly.
 
 - The server part subscribes to OpenCode's execution events.
 - On startup it reconciles running sessions with the server. An execution that
-  is already in progress is adopted automatically.
+  is already in progress is adopted automatically, so the live timer resumes
+  from its persisted start time instead of resetting to zero.
 - Finished executions are saved immediately. While an execution is running, a
   heartbeat writes the last known state every 15 seconds.
 - If the server dies mid-run, the execution is counted up to the last heartbeat
   and marked as `interrupted` on the next start.
 - Tracking starts when the plugin first loads. Earlier executions are not
   reconstructed retroactively.
-- The project total sums all sessions in the project. A subagent session is
-  counted separately, while its parent session also counts the time it spends
-  waiting for it. The project total is therefore the sum of all agent runtime,
-  not the project's wall-clock time.
+- A session total includes its own executions plus every descendant subagent
+  session. The project total independently sums every session in the project,
+  so subagent time is counted once in the project and once in its ancestor
+  session total.
+- Parent and subagent sessions can run at the same time. The totals are therefore
+  additive agent runtime, not the project's wall-clock time.
 - Storage is isolated per project (`state/<projectID>`).
+
+### Timer persistence
+
+The running timer is not just a TUI-local counter. The server stores the
+execution's `startedAt` in the plugin state as soon as it starts, and the
+15-second heartbeat saves the last known state while it runs. After a plugin
+reload or server restart, the plugin reconciles against the active session list
+and restores the timer from its original start time. If the session is no longer
+running, the execution is closed at the last known end (or heartbeat) instead of
+leaving a stuck timer.
 
 ## Development
 
@@ -137,7 +156,9 @@ dependencies, so it can be tested in isolation.
 ## Limitations
 
 - Only executions that happen after install / plugin load are counted.
-- A hard crash can lose the last few seconds before the final heartbeat.
+- A hard crash can lose at most the last heartbeat interval of a running timer.
+- Because session totals add subagent time on top of the parent's own busy time,
+  concurrent parent/subagent work is counted as agent runtime, not wall-clock.
 - If the same project runs in multiple OpenCode instances with this plugin at
   the same time, they share the same storage key. For normal single-machine use
   this is not a problem.

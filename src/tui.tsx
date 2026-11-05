@@ -8,7 +8,7 @@
 import { Show, createMemo, createSignal, createEffect, on, onCleanup, onMount } from "solid-js";
 import { Plugin, usePlugin } from "@opencode/plugin/tui";
 import { AgentRuntimeRpc, type RuntimeStatus } from "./rpc.ts";
-import { formatDuration } from "./runtime.ts";
+import { formatDuration, formatTimer } from "./runtime.ts";
 
 const POLL_MS = 10_000;
 
@@ -76,14 +76,14 @@ function Panel(props: { sessionID: string }) {
   const sessionTotal = createMemo(() => {
     const current = status();
     if (!current) return 0;
-    const delta = current.session.runningSince !== null ? Math.max(0, now() - current.generatedAt) : 0;
+    const delta = Math.max(0, now() - current.generatedAt) * current.session.runningSessions;
     return current.session.totalMs + current.session.runningMs + delta;
   });
 
-  const sessionNow = createMemo(() => {
+  const currentTimer = createMemo(() => {
     const current = status();
-    if (!current || current.session.runningSince === null) return 0;
-    return current.session.runningMs + Math.max(0, now() - current.generatedAt);
+    if (!current || current.session.activeSince === null) return 0;
+    return Math.max(0, now() - current.session.activeSince);
   });
 
   const projectTotal = createMemo(() => {
@@ -100,7 +100,7 @@ function Panel(props: { sessionID: string }) {
     const current = status();
     if (!current) return false;
     if (!hideWhenIdle) return true;
-    return current.session.runningSince !== null || current.session.totalMs > 0;
+    return current.session.activeSince !== null || current.session.totalMs > 0 || current.session.subagents > 0;
   };
 
   return (
@@ -110,17 +110,22 @@ function Panel(props: { sessionID: string }) {
           <text fg={context.theme.text.faint}>AGENT RUNTIME</text>
           <text
             fg={
-              current().session.runningSince !== null
+              current().session.activeSince !== null
                 ? (context.theme.text.feedback.success.base ?? context.theme.text.base)
-                : context.theme.text.base
+                : context.theme.text.muted
             }
           >
-            {`session  ${formatDuration(sessionTotal())}`}
+            {`now      ${current().session.activeSince !== null ? formatTimer(currentTimer()) : "idle"}`}
           </text>
+          <text fg={context.theme.text.base}>{`session  ${formatDuration(sessionTotal())}`}</text>
           <text fg={context.theme.text.muted}>
-            {current().session.runningSince !== null
-              ? `${current().session.executions + 1} run${current().session.executions === 0 ? "" : "s"} · running ${formatDuration(sessionNow())}`
-              : `${current().session.executions} run${current().session.executions === 1 ? "" : "s"} · idle`}
+            {`${current().session.executions + current().session.runningSessions} run${
+              current().session.executions + current().session.runningSessions === 1 ? "" : "s"
+            }${
+              current().session.subagents > 0
+                ? ` · ${current().session.subagents} subagent${current().session.subagents === 1 ? "" : "s"}`
+                : ""
+            }`}
           </text>
 
           <text fg={context.theme.text.base}>{`project  ${formatDuration(projectTotal())}`}</text>
