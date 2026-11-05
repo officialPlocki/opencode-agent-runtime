@@ -1,0 +1,52 @@
+{
+  "name": "opencode-agent-runtime",
+  "version": "0.1.1",
+  "description": "OpenCode V2 plugin: track total agent running time per session and per project.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/officialPlocki/opencode-agent-runtime.git"
+  },
+  "homepage": "https://github.com/officialPlocki/opencode-agent-runtime#readme",
+  "bugs": {
+    "url": "https://github.com/officialPlocki/opencode-agent-runtime/issues"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./rpc": "./src/rpc.ts",
+    "./tui": "./src/tui.tsx"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "runtime",
+    "tracking",
+    "timing",
+    "agents"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "install:local": "V=$(node -p \"require('./package.json').version\"); D=\"$HOME/.local/share/opencode-agent-runtime/$V\"; mkdir -p \"$D\"; rsync -a --delete --exclude node_modules --exclude package-lock.json src README.md LICENSE package.json \"$D/\"; cd \"$D\" && npm install --omit=dev --silent && echo \"installed to $D\""
+  },
+  "dependencies": {
+    "@opencode/plugin": "^2.2.5"
+  },
+  "devDependencies": {
+    "@opencode/theme": "2.2.5",
+    "@opentui/core": "0.8.1",
+    "@opentui/solid": "0.8.1",
+    "@types/node": "^24.0.0",
+    "solid-js": "1.9.18",
+    "typescript": "^5.9.0"
+  },
+  "engines": {
+    "node": ">=22.18"
+  }
+}
