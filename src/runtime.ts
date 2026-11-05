@@ -444,19 +444,6 @@ export function formatDuration(ms: number): string {
   return `${seconds}s`;
 }
 
-export function formatTimer(ms: number): string {
-  const safe = Number.isFinite(ms) ? Math.max(0, ms) : 0;
-  const totalSeconds = Math.floor(safe / 1_000);
-  const seconds = totalSeconds % 60;
-  const minutes = Math.floor(totalSeconds / 60) % 60;
-  const hours = Math.floor(totalSeconds / 3_600);
-
-  if (hours > 0) {
-    return `${hours}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
-  }
-  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
-}
-
 export function formatReport(stats: RuntimeStats, projectLabel?: string): string {
   const { session, project } = stats;
   const sessionTotal = session.totalMs + session.runningMs;

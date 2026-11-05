@@ -67,7 +67,7 @@ Point the plugin entry at the printed directory.
 {
   "plugins": [
     {
-      "package": "/home/you/.local/share/opencode-agent-runtime/0.2.0",
+      "package": "/home/you/.local/share/opencode-agent-runtime/0.2.1",
       "options": {
         "hideWhenIdle": false
       }
@@ -86,7 +86,7 @@ Point the plugin entry at the printed directory.
 
 ```text
 AGENT RUNTIME
-now      2:11
+now      2m 11s
 session  1h 23m
 4 runs · 2 subagents
 project  12h 45m

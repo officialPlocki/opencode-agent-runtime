@@ -8,7 +8,7 @@
 import { Show, createMemo, createSignal, createEffect, on, onCleanup, onMount } from "solid-js";
 import { Plugin, usePlugin } from "@opencode/plugin/tui";
 import { AgentRuntimeRpc, type RuntimeStatus } from "./rpc.ts";
-import { formatDuration, formatTimer } from "./runtime.ts";
+import { formatDuration } from "./runtime.ts";
 
 const POLL_MS = 10_000;
 
@@ -115,7 +115,7 @@ function Panel(props: { sessionID: string }) {
                 : context.theme.text.muted
             }
           >
-            {`now      ${current().session.activeSince !== null ? formatTimer(currentTimer()) : "idle"}`}
+            {`now      ${current().session.activeSince !== null ? formatDuration(currentTimer()) : "idle"}`}
           </text>
           <text fg={context.theme.text.base}>{`session  ${formatDuration(sessionTotal())}`}</text>
           <text fg={context.theme.text.muted}>

@@ -5,7 +5,6 @@ import {
   createProjectState,
   endExecution,
   formatDuration,
-  formatTimer,
   liveStats,
   normalizeState,
   reconcileRunning,
@@ -212,11 +211,4 @@ test("formatDuration uses compact human units", () => {
   assert.equal(formatDuration(65_000), "1m 05s");
   assert.equal(formatDuration(3_600_000), "1h 00m");
   assert.equal(formatDuration(90_000_000), "1d 1h");
-});
-
-test("formatTimer keeps a stable timer shape", () => {
-  assert.equal(formatTimer(0), "0:00");
-  assert.equal(formatTimer(9_000), "0:09");
-  assert.equal(formatTimer(65_000), "1:05");
-  assert.equal(formatTimer(3_665_000), "1:01:05");
 });
